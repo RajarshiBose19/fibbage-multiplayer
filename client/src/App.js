@@ -342,7 +342,6 @@ export default function App() {
 
         {phase === "WRITING" && (
           <>
-            {renderTimer()}
             <h3 style={styles.question}>{question}</h3>
             {submitted ? (
               <div style={styles.waitingBox}>
@@ -369,7 +368,6 @@ export default function App() {
 
         {phase === "VOTING" && (
           <>
-            {renderTimer()}
             <h3 style={styles.question}>{question}</h3>
             {submitted ? (
               <div style={styles.waitingBox}>
@@ -641,13 +639,67 @@ export default function App() {
         {phase === "GAME_OVER" && (
           <>
             <h1>GAME OVER</h1>
-            <div style={{ fontSize: "4rem" }}>🏆</div>
-            <h2 style={{ color: players[0].color }}>{players[0].name} WINS!</h2>
+            <div style={{ fontSize: "4rem", marginBottom: "10px" }}>🏆</div>
+            <h2
+              style={{
+                color: players[0].color,
+                textShadow: "0 0 10px rgba(0,0,0,0.5)",
+              }}
+            >
+              {players[0].name} WINS!
+            </h2>
+            <div style={styles.finalLeaderboard}>
+              <h3
+                style={{
+                  borderBottom: "1px solid #444",
+                  paddingBottom: "10px",
+                  marginBottom: "10px",
+                }}
+              >
+                FINAL SCORES
+              </h3>
+              {players
+                .sort((a, b) => b.score - a.score)
+                .map((p, i) => (
+                  <div key={p.id} style={styles.finalRow}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontWeight: "bold",
+                          color: i === 0 ? "#FFE66D" : "#aaa",
+                          fontSize: i === 0 ? "1.2rem" : "1rem",
+                        }}
+                      >
+                        #{i + 1}
+                      </span>
+                      <span style={{ fontSize: i === 0 ? "1.2rem" : "1rem" }}>
+                        {p.name}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        color: "#4ECDC4",
+                        fontWeight: "bold",
+                        fontSize: i === 0 ? "1.2rem" : "1rem",
+                      }}
+                    >
+                      {p.score}
+                    </span>
+                  </div>
+                ))}
+            </div>
+
             <button
               style={styles.primaryBtn}
               onClick={() => window.location.reload()}
             >
-              EXIT
+              EXIT GAME
             </button>
           </>
         )}
@@ -928,5 +980,22 @@ const styles = {
     backgroundColor: "rgba(255,255,255,0.05)",
     padding: "15px",
     borderRadius: "10px",
+  },
+  finalLeaderboard: {
+    width: "100%",
+    backgroundColor: "rgba(0,0,0,0.2)",
+    borderRadius: "15px",
+    padding: "15px",
+    margin: "20px 0",
+    maxHeight: "300px",
+    overflowY: "auto",
+    textAlign: "left",
+  },
+  finalRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "10px 0",
+    borderBottom: "1px solid rgba(255,255,255,0.1)",
   },
 };
