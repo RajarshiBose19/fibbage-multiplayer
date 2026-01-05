@@ -12,11 +12,10 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
-// --- CONSTANTS ---
 const POINTS_CORRECT = 1000;
 const POINTS_FOOL = 500;
-const TIME_LIMIT = 45; // Seconds
-const PENALTY_PER_SEC = 10; // Points lost per second overtime
+const TIME_LIMIT = 45;
+const PENALTY_PER_SEC = 20;
 const AVATAR_COLORS = [
   "#FF6B6B",
   "#4ECDC4",
@@ -40,7 +39,6 @@ const generateRoomCode = () => {
 const shuffle = (array) => array.sort(() => Math.random() - 0.5);
 const getAvatarColor = (index) => AVATAR_COLORS[index % AVATAR_COLORS.length];
 
-// --- HELPER: Calculate Penalty ---
 const calculatePenalty = (startTime) => {
   if (!startTime) return 0;
   const now = Date.now();
@@ -48,7 +46,6 @@ const calculatePenalty = (startTime) => {
   const overtime = elapsedSeconds - TIME_LIMIT;
 
   if (overtime > 0) {
-    // Ceiling to ensure even 0.1s late gets a penalty
     return Math.ceil(overtime) * PENALTY_PER_SEC;
   }
   return 0;
@@ -57,7 +54,6 @@ const calculatePenalty = (startTime) => {
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
 
-  // 1. CREATE ROOM
   socket.on("create_room", ({ playerName, settings }) => {
     const roomCode = generateRoomCode();
 
@@ -71,9 +67,9 @@ io.on("connection", (socket) => {
       lies: {},
       votes: {},
       bets: {},
-      penalties: {}, // NEW: Track penalties for this round
+      penalties: {},
       shuffledOptions: [],
-      phaseStartTime: 0, // NEW: Track when phase started
+      phaseStartTime: 0,
     };
 
     const newPlayer = {
@@ -96,7 +92,6 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("update_players", rooms[roomCode].players);
   });
 
-  // 2. JOIN ROOM
   socket.on("join_room", ({ roomCode, playerName }) => {
     const room = rooms[roomCode];
     if (!room) return socket.emit("error_message", "Room not found.");
@@ -130,7 +125,6 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("update_players", room.players);
   });
 
-  // 3. START GAME
   socket.on("start_game", (roomCode) => {
     const room = rooms[roomCode];
     if (!room || room.hostId !== socket.id) return;
@@ -142,12 +136,10 @@ io.on("connection", (socket) => {
     startRound(roomCode);
   });
 
-  // 4. SUBMIT LIE
   socket.on("submit_lie", ({ roomCode, lie }) => {
     const room = rooms[roomCode];
     if (!room || room.phase !== "WRITING") return;
 
-    // Calculate Penalty
     const penalty = calculatePenalty(room.phaseStartTime);
     if (penalty > 0) {
       room.penalties[socket.id] = (room.penalties[socket.id] || 0) + penalty;
@@ -165,12 +157,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 5. SUBMIT VOTE
   socket.on("submit_vote", ({ roomCode, vote, bet }) => {
     const room = rooms[roomCode];
     if (!room || room.phase !== "VOTING") return;
 
-    // Calculate Penalty
     const penalty = calculatePenalty(room.phaseStartTime);
     if (penalty > 0) {
       room.penalties[socket.id] = (room.penalties[socket.id] || 0) + penalty;
@@ -189,7 +179,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 6. NEXT ROUND
   socket.on("next_round", (roomCode) => {
     const room = rooms[roomCode];
     if (!room || room.hostId !== socket.id) return;
@@ -202,12 +191,87 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("trigger_next_reveal", (roomCode) => {
+    io.to(roomCode).emit("next_reveal_card");
+  });
+
   socket.on("disconnect", () => {
-    // Cleanup logic
+    console.log(`User Disconnected: ${socket.id}`);
+
+    for (const roomCode in rooms) {
+      const room = rooms[roomCode];
+      const playerIndex = room.players.findIndex((p) => p.id === socket.id);
+
+      if (playerIndex !== -1) {
+        const player = room.players[playerIndex];
+
+        if (room.hostId === socket.id) {
+          console.log(`Host left room ${roomCode}. Destroying room.`);
+          io.to(roomCode).emit(
+            "error_message",
+            "Host disconnected. Game ended."
+          );
+          io.to(roomCode).emit("game_over", []);
+          delete rooms[roomCode];
+          return;
+        }
+
+        console.log(`Player ${player.name} left room ${roomCode}`);
+
+        room.players.splice(playerIndex, 1);
+
+        delete room.lies[socket.id];
+        delete room.votes[socket.id];
+        delete room.bets[socket.id];
+
+        io.to(roomCode).emit("update_players", room.players);
+
+        if (room.players.length === 0) {
+          delete rooms[roomCode];
+          return;
+        }
+
+        checkPhaseProgression(roomCode);
+
+        break;
+      }
+    }
   });
 });
 
-// --- LOGIC HELPERS ---
+function checkPhaseProgression(roomCode) {
+  const room = rooms[roomCode];
+  if (!room) return;
+
+  if (room.phase === "WRITING") {
+    const submittedCount = Object.keys(room.lies).length;
+    const totalPlayers = room.players.length;
+
+    io.to(roomCode).emit("update_progress", {
+      current: submittedCount,
+      total: totalPlayers,
+    });
+
+    if (submittedCount >= totalPlayers) {
+      startVotingPhase(roomCode);
+    }
+  }
+
+  if (room.phase === "VOTING") {
+    const votedCount = Object.keys(room.votes).length;
+    const totalPlayers = room.players.length;
+
+    io.to(roomCode).emit("update_progress", {
+      current: votedCount,
+      total: totalPlayers,
+    });
+
+    if (votedCount >= totalPlayers) {
+      calculateScores(roomCode);
+    }
+  }
+}
+
 function startRound(roomCode) {
   const room = rooms[roomCode];
   const question = room.gameQueue.pop();
@@ -216,9 +280,9 @@ function startRound(roomCode) {
   room.lies = {};
   room.votes = {};
   room.bets = {};
-  room.penalties = {}; // Reset penalties for new round
+  room.penalties = {};
   room.phase = "WRITING";
-  room.phaseStartTime = Date.now(); // Start Timer
+  room.phaseStartTime = Date.now();
 
   io.to(roomCode).emit("phase_change", {
     phase: "WRITING",
@@ -230,7 +294,7 @@ function startRound(roomCode) {
 function startVotingPhase(roomCode) {
   const room = rooms[roomCode];
   room.phase = "VOTING";
-  room.phaseStartTime = Date.now(); // Start Timer for Voting
+  room.phaseStartTime = Date.now();
 
   const allOptions = [
     {
@@ -259,9 +323,7 @@ function calculateScores(roomCode) {
   const room = rooms[roomCode];
   const truth = room.currentQuestion.answer.toLowerCase();
 
-  // 1. Reset/Init Round Breakdown
-  // We store how many points each player gained THIS round for the UI
-  const roundBreakdown = {}; // { playerId: { correct: 0, fooling: 0, bet: 0, penalty: 0, total: 0 } }
+  const roundBreakdown = {};
 
   room.players.forEach((p) => {
     roundBreakdown[p.id] = {
@@ -273,21 +335,18 @@ function calculateScores(roomCode) {
     };
   });
 
-  // 2. Calculate Points
   room.players.forEach((player) => {
     const voteText = room.votes[player.id];
     const betAmount = room.bets[player.id] || 0;
     const penalty = room.penalties[player.id] || 0;
     const stats = roundBreakdown[player.id];
 
-    // A. Penalty
     if (penalty > 0) {
       player.score -= penalty;
       stats.penalty -= penalty;
       stats.total -= penalty;
     }
 
-    // B. Correct Answer & Betting
     if (voteText === truth) {
       player.score += POINTS_CORRECT;
       stats.correct += POINTS_CORRECT;
@@ -298,7 +357,6 @@ function calculateScores(roomCode) {
       }
       stats.total += POINTS_CORRECT + betAmount;
     } else {
-      // Wrong Answer - Lose Bet
       if (betAmount > 0) {
         player.score -= betAmount;
         stats.bet -= betAmount;
@@ -306,7 +364,6 @@ function calculateScores(roomCode) {
       }
     }
 
-    // C. Fooling Others
     room.players.forEach((otherPlayer) => {
       if (player.id !== otherPlayer.id) {
         const otherVote = room.votes[otherPlayer.id];
@@ -320,7 +377,6 @@ function calculateScores(roomCode) {
     });
   });
 
-  // 3. Prepare Reveal Data
   const revealData = room.shuffledOptions.map((option) => {
     const voters = room.players
       .filter((p) => room.votes[p.id] === option.text)
@@ -339,7 +395,6 @@ function calculateScores(roomCode) {
     return { text: option.text, type: option.type, authorName, voters };
   });
 
-  // Sort: Lies first, Truth last
   revealData.sort((a, b) =>
     a.type === "TRUTH" ? 1 : b.type === "TRUTH" ? -1 : 0
   );
@@ -349,9 +404,9 @@ function calculateScores(roomCode) {
     phase: "REVEAL",
     revealData,
     players: room.players,
-    roundBreakdown, // Send the specific point details
+    roundBreakdown,
     truth: room.currentQuestion.answer,
-    questionText: room.currentQuestion.text, // Send question text for context
+    questionText: room.currentQuestion.text,
   });
 }
 
