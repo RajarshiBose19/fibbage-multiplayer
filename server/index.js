@@ -8,12 +8,8 @@ const app = express();
 app.use(cors());
 
 const server = http.createServer(app);
-
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
+  cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
 const POINTS_CORRECT = 1000;
@@ -38,27 +34,19 @@ const generateRoomCode = () => {
   return rooms[result] ? generateRoomCode() : result;
 };
 
-const shuffle = (array) => {
-  const newArr = [...array];
-  for (let i = newArr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
-  }
-  return newArr;
-};
-
+const shuffle = (array) => array.sort(() => Math.random() - 0.5);
 const getAvatarColor = (index) => AVATAR_COLORS[index % AVATAR_COLORS.length];
 
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
 
-  socket.on("create_room", (settings) => {
+  socket.on("create_room", ({ playerName, settings }) => {
     const roomCode = generateRoomCode();
 
     rooms[roomCode] = {
       hostId: socket.id,
       players: [],
-      settings: settings || { rounds: 5, betting: false, shuffle: true },
+      settings: settings,
       gameQueue: [],
       currentQuestion: null,
       phase: "LOBBY",
@@ -68,29 +56,38 @@ io.on("connection", (socket) => {
       shuffledOptions: [],
     };
 
+    const newPlayer = {
+      id: socket.id,
+      name: playerName,
+      score: 0,
+      color: getAvatarColor(0),
+    };
+
+    rooms[roomCode].players.push(newPlayer);
     socket.join(roomCode);
-    socket.emit("room_created", roomCode);
-    console.log(`Room ${roomCode} created by ${socket.id}`);
+
+    socket.emit("joined_success", {
+      roomCode,
+      playerId: socket.id,
+      isHost: true,
+      settings: rooms[roomCode].settings,
+    });
+
+    io.to(roomCode).emit("update_players", rooms[roomCode].players);
   });
 
   socket.on("join_room", ({ roomCode, playerName }) => {
     const room = rooms[roomCode];
 
-    if (!room) {
-      socket.emit("error_message", "Room not found.");
-      return;
-    }
-    if (room.phase !== "LOBBY") {
-      socket.emit("error_message", "Game already in progress.");
-      return;
-    }
+    if (!room) return socket.emit("error_message", "Room not found.");
+    if (room.phase !== "LOBBY")
+      return socket.emit("error_message", "Game started.");
     if (
       room.players.some(
         (p) => p.name.toLowerCase() === playerName.toLowerCase()
       )
     ) {
-      socket.emit("error_message", "Name already taken.");
-      return;
+      return socket.emit("error_message", "Name taken.");
     }
 
     const newPlayer = {
@@ -106,7 +103,7 @@ io.on("connection", (socket) => {
     socket.emit("joined_success", {
       roomCode,
       playerId: socket.id,
-      color: newPlayer.color,
+      isHost: false,
       settings: room.settings,
     });
 
@@ -115,12 +112,10 @@ io.on("connection", (socket) => {
 
   socket.on("start_game", (roomCode) => {
     const room = rooms[roomCode];
-    if (!room) return;
+    if (!room || room.hostId !== socket.id) return;
 
     let qList = [...questions];
-    if (room.settings.shuffle) {
-      qList = shuffle(qList);
-    }
+    if (room.settings.shuffle) qList = shuffle(qList);
     room.gameQueue = qList.slice(0, room.settings.rounds);
 
     startRound(roomCode);
@@ -132,13 +127,13 @@ io.on("connection", (socket) => {
 
     room.lies[socket.id] = lie;
 
-    io.to(roomCode).emit("update_progress", {
-      current: Object.keys(room.lies).length,
-      total: room.players.length,
-    });
-
     if (Object.keys(room.lies).length === room.players.length) {
       startVotingPhase(roomCode);
+    } else {
+      io.to(roomCode).emit("update_progress", {
+        current: Object.keys(room.lies).length,
+        total: room.players.length,
+      });
     }
   });
 
@@ -147,23 +142,21 @@ io.on("connection", (socket) => {
     if (!room || room.phase !== "VOTING") return;
 
     room.votes[socket.id] = vote;
-    if (room.settings.betting) {
-      room.bets[socket.id] = bet || 0;
-    }
-
-    io.to(roomCode).emit("update_progress", {
-      current: Object.keys(room.votes).length,
-      total: room.players.length,
-    });
+    if (room.settings.betting) room.bets[socket.id] = bet || 0;
 
     if (Object.keys(room.votes).length === room.players.length) {
       calculateScores(roomCode);
+    } else {
+      io.to(roomCode).emit("update_progress", {
+        current: Object.keys(room.votes).length,
+        total: room.players.length,
+      });
     }
   });
 
   socket.on("next_round", (roomCode) => {
     const room = rooms[roomCode];
-    if (!room) return;
+    if (!room || room.hostId !== socket.id) return;
 
     if (room.gameQueue.length > 0) {
       startRound(roomCode);
@@ -173,29 +166,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
-    for (const code in rooms) {
-      const room = rooms[code];
-      const playerIndex = room.players.findIndex((p) => p.id === socket.id);
-
-      if (playerIndex !== -1) {
-        room.players.splice(playerIndex, 1);
-        io.to(code).emit("update_players", room.players);
-
-        if (room.players.length === 0 && room.hostId !== socket.id) {
-          // Keep room if host is still there, otherwise maybe delete?
-          // For simplicity, we leave it for now.
-        }
-        break;
-      }
-
-      if (room.hostId === socket.id) {
-        io.to(code).emit("host_disconnected");
-        delete rooms[code];
-        break;
-      }
-    }
-  });
+  socket.on("disconnect", () => {});
 });
 
 function startRound(roomCode) {
@@ -251,8 +222,7 @@ function calculateScores(roomCode) {
     const betAmount = room.bets[player.id] || 0;
 
     if (voteText === truth) {
-      player.score += POINTS_CORRECT;
-      player.score += betAmount;
+      player.score += POINTS_CORRECT + betAmount;
     } else {
       player.score -= betAmount;
     }
@@ -271,10 +241,7 @@ function calculateScores(roomCode) {
   const revealData = room.shuffledOptions.map((option) => {
     const voters = room.players
       .filter((p) => room.votes[p.id] === option.text)
-      .map((p) => ({
-        name: p.name,
-        bet: room.bets[p.id] || 0,
-      }));
+      .map((p) => ({ name: p.name, bet: room.bets[p.id] || 0 }));
 
     let authorName = null;
     if (option.type === "LIE") {
@@ -282,31 +249,20 @@ function calculateScores(roomCode) {
       authorName = author ? author.name : "Unknown";
     }
 
-    return {
-      text: option.text,
-      type: option.type,
-      authorName: authorName,
-      voters: voters,
-    };
+    return { text: option.text, type: option.type, authorName, voters };
   });
 
-  revealData.sort((a, b) => {
-    if (a.type === "TRUTH") return 1;
-    if (b.type === "TRUTH") return -1;
-    return 0;
-  });
+  revealData.sort((a, b) =>
+    a.type === "TRUTH" ? 1 : b.type === "TRUTH" ? -1 : 0
+  );
 
   room.phase = "REVEAL";
-
   io.to(roomCode).emit("round_results", {
     phase: "REVEAL",
-    revealData: revealData,
+    revealData,
     players: room.players,
     truth: room.currentQuestion.answer,
   });
 }
 
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`SERVER RUNNING ON PORT ${PORT}`);
-});
+server.listen(3001, () => console.log("SERVER RUNNING ON 3001"));
