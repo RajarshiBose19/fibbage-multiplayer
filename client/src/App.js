@@ -202,15 +202,15 @@ export default function App() {
   };
 
   const renderTimer = () => {
+    if (phase !== "WRITING" && phase !== "VOTING") return null;
+    if (submitted) return null;
+
     const isOvertime = timeLeft < 0;
     const penalty = isOvertime ? Math.abs(timeLeft) * PENALTY_PER_SEC : 0;
+
     return (
       <div style={isOvertime ? styles.timerOvertime : styles.timerNormal}>
-        {isOvertime ? (
-          <span>OVERTIME! -{penalty} pts</span>
-        ) : (
-          <span>⏱ {timeLeft}s</span>
-        )}
+        {isOvertime ? <span>-{penalty}</span> : <span>{timeLeft}s</span>}
       </div>
     );
   };
@@ -309,7 +309,11 @@ export default function App() {
       <div style={styles.gameCard}>
         <div style={styles.header}>
           <div style={styles.roomCode}>ROOM: {roomCode}</div>
-          {phase !== "LOBBY" && <div style={styles.phaseBadge}>{phase}</div>}
+
+          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+            {phase !== "LOBBY" && <div style={styles.phaseBadge}>{phase}</div>}
+            {renderTimer()}
+          </div>
         </div>
 
         {phase === "LOBBY" && (
@@ -835,20 +839,15 @@ const styles = {
     border: "2px solid #4ECDC4",
   },
   timerNormal: {
-    position: "absolute",
-    top: "10px",
-    right: "10px",
     backgroundColor: "rgba(0,0,0,0.3)",
     padding: "5px 10px",
     borderRadius: "15px",
     fontWeight: "bold",
     color: "#4ECDC4",
     fontSize: "0.9rem",
+    minWidth: "40px",
   },
   timerOvertime: {
-    position: "absolute",
-    top: "10px",
-    right: "10px",
     backgroundColor: "#E94560",
     padding: "5px 10px",
     borderRadius: "15px",
@@ -856,8 +855,8 @@ const styles = {
     color: "white",
     fontSize: "0.9rem",
     animation: "pulse 0.5s infinite",
+    minWidth: "40px",
   },
-  // --- REVEAL STYLES ---
   revealContainer: {
     display: "flex",
     flexDirection: "column",
