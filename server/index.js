@@ -51,6 +51,14 @@ const calculatePenalty = (startTime) => {
   return 0;
 };
 
+const cleanString = (str) => {
+  return str
+    .toLowerCase()
+    .replace(/[^\w\s]|_/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
 
@@ -140,9 +148,19 @@ io.on("connection", (socket) => {
     const room = rooms[roomCode];
     if (!room || room.phase !== "WRITING") return;
 
-    const penalty = calculatePenalty(room.phaseStartTime);
-    if (penalty > 0) {
-      room.penalties[socket.id] = (room.penalties[socket.id] || 0) + penalty;
+    const cleanLie = cleanString(lie);
+    const cleanTruth = cleanString(room.currentQuestion.answer);
+
+    if (
+      cleanLie === cleanTruth ||
+      cleanLie.includes(cleanTruth) ||
+      cleanTruth.includes(cleanLie)
+    ) {
+      socket.emit(
+        "error_message",
+        "You typed the TRUTH! You must write a LIE."
+      );
+      return;
     }
 
     room.lies[socket.id] = lie;

@@ -109,6 +109,7 @@ export default function App() {
 
     socket.on("error_message", (msg) => {
       setError(msg);
+      setSubmitted(false);
       setTimeout(() => setError(""), 3000);
     });
 
@@ -635,74 +636,79 @@ export default function App() {
             )}
           </>
         )}
+        {phase === "GAME_OVER" &&
+          (() => {
+            const sortedPlayers = [...players].sort(
+              (a, b) => b.score - a.score
+            );
+            const winner = sortedPlayers[0];
 
-        {phase === "GAME_OVER" && (
-          <>
-            <h1>GAME OVER</h1>
-            <div style={{ fontSize: "4rem", marginBottom: "10px" }}>🏆</div>
-            <h2
-              style={{
-                color: players[0].color,
-                textShadow: "0 0 10px rgba(0,0,0,0.5)",
-              }}
-            >
-              {players[0].name} WINS!
-            </h2>
-            <div style={styles.finalLeaderboard}>
-              <h3
-                style={{
-                  borderBottom: "1px solid #444",
-                  paddingBottom: "10px",
-                  marginBottom: "10px",
-                }}
-              >
-                FINAL SCORES
-              </h3>
-              {players
-                .sort((a, b) => b.score - a.score)
-                .map((p, i) => (
-                  <div key={p.id} style={styles.finalRow}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "10px",
-                      }}
-                    >
+            return (
+              <>
+                <h1>GAME OVER</h1>
+                <div style={{ fontSize: "4rem", marginBottom: "10px" }}>🏆</div>
+                <h2
+                  style={{
+                    color: winner.color,
+                    textShadow: "0 0 10px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  {winner.name} WINS!
+                </h2>
+                <div style={styles.finalLeaderboard}>
+                  <h3
+                    style={{
+                      borderBottom: "1px solid #444",
+                      paddingBottom: "10px",
+                      marginBottom: "10px",
+                    }}
+                  >
+                    FINAL SCORES
+                  </h3>
+                  {sortedPlayers.map((p, i) => (
+                    <div key={p.id} style={styles.finalRow}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontWeight: "bold",
+                            color: i === 0 ? "#FFE66D" : "#aaa",
+                            fontSize: i === 0 ? "1.2rem" : "1rem",
+                          }}
+                        >
+                          #{i + 1}
+                        </span>
+                        <span style={{ fontSize: i === 0 ? "1.2rem" : "1rem" }}>
+                          {p.name}
+                        </span>
+                      </div>
                       <span
                         style={{
+                          color: "#4ECDC4",
                           fontWeight: "bold",
-                          color: i === 0 ? "#FFE66D" : "#aaa",
                           fontSize: i === 0 ? "1.2rem" : "1rem",
                         }}
                       >
-                        #{i + 1}
-                      </span>
-                      <span style={{ fontSize: i === 0 ? "1.2rem" : "1rem" }}>
-                        {p.name}
+                        {p.score}
                       </span>
                     </div>
-                    <span
-                      style={{
-                        color: "#4ECDC4",
-                        fontWeight: "bold",
-                        fontSize: i === 0 ? "1.2rem" : "1rem",
-                      }}
-                    >
-                      {p.score}
-                    </span>
-                  </div>
-                ))}
-            </div>
+                  ))}
+                </div>
 
-            <button
-              style={styles.primaryBtn}
-              onClick={() => window.location.reload()}
-            >
-              EXIT GAME
-            </button>
-          </>
-        )}
+                <button
+                  style={styles.primaryBtn}
+                  onClick={() => window.location.reload()}
+                >
+                  EXIT GAME
+                </button>
+              </>
+            );
+          })()}
       </div>
     </div>
   );
